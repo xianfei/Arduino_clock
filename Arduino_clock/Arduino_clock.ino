@@ -5,24 +5,49 @@
    2键：设定闹钟
    3键：修改日期
    4键：取消闹钟
+   5键：切换24小时制
+   6键：显示温度
+   7键：切换背光开关
 修改时间日期及设置闹钟使用0-9键输入
 显示alamr则表示闹钟已设定
 */
 
+//在这里自定义遥控按键
+#define edittimeKey 1
+#define setAlarmKey 2
+#define editdayKey 3
+#define cancelAlarmKey 4
+#define use24hKey 5
+#define showtempKey 6
+#define backlightKey 7
 
-#include <LiquidCrystal_I2C.h>
-//#include<Wire.h>
-#include <IRremote.h>
-#define buzzpin 5
+//在这里设置端口信息
+#define DHT11_PIN 4  //温度计模块接口
+#define buzzpin 5  //蜂鸣器接收端口
 #define RECV_PIN 10 //红外接收端口
+
+//在这里设定初始化的 时 分 秒 年 月 日 星期
+static short h = 10, m = 16, s = 30, y = 2018, mon = 11, day = 23, xq = 5;
+
+//在这里自定义是否使用24h制、显示温度
+bool use24h=1,showtemp=0;
+
+//在这里自定义启动画面显示的信息
+#define bootinf "by xianfei"
+
+//以下是代码部分
+#include "dht11.h"
+dht11 DHT;
+#include <LiquidCrystal_I2C.h>
+#include <IRremote.h>
 IRrecv irrecv(RECV_PIN);
 decode_results results;
 LiquidCrystal_I2C lcd(0x20, 16, 2); //设置LCD的地址，2行，每行16字符
 static char t[9], d[12];
+static short edittime = 0, editdate = 0, editalarm = 0, curs,backLight=1;
 static short ah = 25, am = 0;
-//在这里设定初始化的 时 分 秒 年 月 日 星期
-static short h = 10, m = 16, s = 30, y = 2018, mon = 11, day = 23, xq = 5;
-static short edittime = 0, editdate = 0, editalarm = 0, curs;
+#define editmode (edittime || editdate || editalarm)
+
 void setup()
 {
   lcd.init();         // LCD初始化设置
@@ -33,17 +58,29 @@ void setup()
   lcd.setCursor(0, 0);
   lcd.print("Booting...");
   lcd.setCursor(0, 1);
-  lcd.print("by xianfei");
+  lcd.print(bootinf);
   delay(1000);
   lcd.clear();
 }
 
 void loop()
 {
-  //接受遥控信息
   for (int i = 0; i < 950; i++)
   {
-    if (irrecv.decode(&results))
+    recv(); //接受遥控信号
+    delay(1);
+  }
+  if (!edittime)
+    gettime(); //获取时间及时间流动
+  if (!(editmode || (ah == h && am == m)))
+    output(); //如果不在编辑模式 将输出时间日期
+  if (ah == h && am == m)
+    alarmrun(); //闹钟响铃部分
+}
+
+void recv()
+{
+      if (irrecv.decode(&results))
     {
       //Serial.println(results.value, HEX);
       if (results.value == 0xFD30CF)
@@ -94,34 +131,47 @@ void loop()
         lcd.clear();
         lcd.noBlink();
         ah = 25, am = 0;
+        digitalWrite(buzzpin, LOW);
       }
       irrecv.resume();
     }
-    delay(1);
-  }
-  if (!edittime)
-    gettime();
-  if (!(edittime || editdate || editalarm || (ah == h && am == m)))
-    output(); //如果不在编辑模式 将输出时间日期
-  if (ah == h && am == m)
-    alarmrun(); //闹钟响铃部分
 }
 
 void output()
 {
   //显示闹钟标识及时间
-  if (ah == 25)
+  if ((ah == 25)&&use24h)
     lcd.setCursor(4, 1);
-  if (ah != 25)
+  if ((ah == 25)&&!use24h)
+    lcd.setCursor(3, 1);
+  if ((ah != 25))
     lcd.setCursor(1, 1);
   lcd.print(t);
-  if (ah != 25)
+  if ((ah != 25)&&use24h)
   lcd.print(" alarm");  
+  if ((ah != 25)&&!use24h){
+    if(h>12)lcd.print("PM"); 
+    else lcd.print("AM");
+    lcd.print(" alm");  
+  }
+  if ((ah == 25)&&!use24h)
+    {
+      if(h>12)lcd.print("PM"); 
+      else lcd.print("AM");
+    }
+  
   //显示日期部分
   lcd.setCursor(1, 0);
-  lcd.print(y);
+  if(showtemp){
+
+  lcd.print(&d[1]);
+  lcd.print(" ");
+  }
+  else{
+    lcd.print(y);
   lcd.print(d);
   lcd.print(" ");
+  }
   //显示星期部分
   switch (xq)
   {
@@ -149,6 +199,12 @@ void output()
   default:
     lcd.print("Err");
   }
+  if(showtemp){
+    DHT.read(DHT11_PIN);
+    lcd.print(" ");
+    lcd.print(DHT.temperature,1);
+  
+  }
 }
 
 void alarmrun()
@@ -172,9 +228,26 @@ void alarmrun()
 
 int remote(int recv)
 {
-  if (recv == 4 && !(edittime || editdate || editalarm))
+  if (recv == backlightKey && !editmode){
+    backLight=!backLight;
+    if(backLight)lcd.backlight(); 
+    else lcd.noBacklight();
+    return 0;
+  }
+  if (recv == showtempKey && !editmode){
+    showtemp=!showtemp;
+    lcd.clear();
+    return 0;
+  }
+  if (recv == use24hKey && !editmode){
+    use24h=!use24h;
+    lcd.clear();
+    return 0;
+  }
+  if (recv == cancelAlarmKey && !editmode)
   {
     ah = 25;
+    digitalWrite(buzzpin, LOW);
     lcd.clear();
     lcd.setCursor(1, 0);
     lcd.print("Alarm canceled");
@@ -182,7 +255,7 @@ int remote(int recv)
     delay(960);
     return 0;
   }
-  if (recv == 3 && !(edittime || editdate || editalarm))
+  if (recv == editdayKey && !editmode)
   {
     editdate = 1;
     curs = 2;
@@ -198,7 +271,7 @@ int remote(int recv)
     delay(50);
     return 0;
   }
-  if (recv == 1 && !(edittime || editdate || editalarm))
+  if (recv == edittimeKey && !editmode)
   {
     edittime = 1;
     curs = 3;
@@ -214,7 +287,7 @@ int remote(int recv)
     delay(50);
     return 0;
   }
-  if (recv == 2 && !(edittime || editdate || editalarm))
+  if (recv == setAlarmKey && !editmode)
   {
     editalarm = 1;
     curs = 3;
@@ -371,12 +444,12 @@ int remote(int recv)
 void gettime()
 {
   s++;
-  if (s > 59)
+  if (s > 59) 
   {
     s = 0;
     m++;
   }
-  if (m > 59)
+  if (m > 59) 
   {
     m = 0;
     h++;
@@ -411,7 +484,20 @@ void gettime()
     t[4] = '0' + m % 10;
     t[3] = '0' + m / 10;
   }
-  if (h < 10)
+  if((!use24h)&&(h>12)){
+    if (h-12 < 10)
+  {
+    t[1] = '0' + h-12;
+    t[0] = '0';
+  }
+  else
+  {
+    t[1] = '0' + h-12 % 10;
+    t[0] = '0' + h-12 / 10;
+  }
+  
+  }else{
+      if (h < 10)
   {
     t[1] = '0' + h;
     t[0] = '0';
@@ -420,6 +506,7 @@ void gettime()
   {
     t[1] = '0' + h % 10;
     t[0] = '0' + h / 10;
+  }
   }
   t[2] = ':';
   t[5] = ':';
