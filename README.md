@@ -1,8 +1,17 @@
 # Arduino_clock
-Using DFROBOT Intermediate Kit for Arduino
-使用DFRobot Arduino中级套件制作
+Using DFROBOT Intermediate Kit for Arduino.
+使用DFRobot Arduino中级套件制作。
 
 ![image](https://github.com/xianfei/Arduino_clock/raw/master/img/DSC01408small.jpg)
+
+
+Component: Arduino Uno broad & I/O extended broad， A1602 I2C screen module, IR remote module & remote control, Buzzer module(if you want to use alarm function), DHT-11 temperature and humidity sensor module(if you want to display temperature). 需要的组件：ArduinoUno开发板及扩展版，屏幕模块，IR接收模块，遥控器，蜂鸣器，（v2新增）温湿度传感器。
+
+If you want to use auto brightness function, you need change something on the screen module.(only in v3 and newer software) 如果你想使用自动亮度调节，你需要稍稍更改一下电路。
+
+![image](https://github.com/xianfei/Arduino_clock/raw/master/img/DSC01453small.jpg)
+
+（在img文件夹下可以查看高清大图）
 
 Firstly, you need download those library in Arduino APP.
 首先，你需要在arduino中下载如下库。如图所示。
