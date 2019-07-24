@@ -22,18 +22,23 @@
 #define backlightKey 7
 
 //在这里设置端口信息
-#define DHT11_PIN 4  //温度计模块接口
-#define buzzpin 5  //蜂鸣器接收端口
+#define DHT11_PIN 5  //温度计模块接口
+#define buzzpin 4  //蜂鸣器接收端口
+#define LCD_BK_PIN 6  //温度计模块接口
 #define RECV_PIN 10 //红外接收端口
+#define AMBIENT_Light1 9
+#define AMBIENT_Light2 3
+#define LIGHT_SENSOR A0
 
 //在这里设定初始化的 时 分 秒 年 月 日 星期
-static short h = 10, m = 16, s = 30, y = 2018, mon = 11, day = 23, xq = 5;
+static short h = 18, m = 16, s = 30, y = 2019, mon = 7, day = 21, xq = 7;
 
 //在这里自定义是否使用24h制、显示温度
 bool use24h=1,showtemp=0;
 
 //在这里自定义启动画面显示的信息
 #define bootinf "by xianfei"
+
 
 //以下是代码部分
 #include "dht11.h"
@@ -47,12 +52,26 @@ static char t[9], d[12];
 static short edittime = 0, editdate = 0, editalarm = 0, curs,backLight=1;
 static short ah = 25, am = 0;
 #define editmode (edittime || editdate || editalarm)
+int lcd_bk = 255;
+
+int ambientLight1 = 0;
+bool ambientLight1Waved = false;
+int ambientLight2 = 0;
+bool ambientLight2On = false;
+unsigned long oldmillis=0;
+unsigned long long passed=0;
+bool noOutputOnce = false;
 
 void setup()
 {
   lcd.init();         // LCD初始化设置
   lcd.backlight();    // 打开 LCD背光
-  //Serial.begin(9600); // 设置串口波特率9600
+  pinMode(LCD_BK_PIN, OUTPUT);
+  pinMode(AMBIENT_Light1, OUTPUT);
+
+  //analogWrite(AMBIENT_Light1, 255);
+  analogWrite(LCD_BK_PIN, lcd_bk);
+  Serial.begin(9600); // 设置串口波特率9600
   irrecv.enableIRIn();
   pinMode(buzzpin, OUTPUT);
   lcd.setCursor(0, 0);
@@ -61,28 +80,156 @@ void setup()
   lcd.print(bootinf);
   delay(1000);
   lcd.clear();
+ 
 }
+
+
 
 void loop()
 {
-  for (int i = 0; i < 950; i++)
-  {
-    recv(); //接受遥控信号
-    delay(1);
-  }
-  if (!edittime)
-    gettime(); //获取时间及时间流动
-  if (!(editmode || (ah == h && am == m)))
-    output(); //如果不在编辑模式 将输出时间日期
-  if (ah == h && am == m)
-    alarmrun(); //闹钟响铃部分
+  recv(); //接受遥控信号
+  if(ambientLight1Waved){
+    //double light=255*0.5*(1.0+sin(millis()/2000.0));
+    //double light=255*pow(sin(millis()/2000.0),2);
+    //double light=255*sqrt(0.5*(1.0+sin(millis()/2000.0)));
+    double light=ambientLight1*pow(0.5*(1.0+sin(millis()/2000.0)),2);
+    analogWrite(AMBIENT_Light1, light);
+    Serial.println(light);
+    }
+  #ifndef TEST1
+  int sensorValue = analogRead(LIGHT_SENSOR); // 0-1023
+  lcd_bk=sensorValue/4;  // 0-255
+  analogWrite(LCD_BK_PIN, lcd_bk);
+  #endif
+  unsigned long millis_=millis();
+  if(millis_-oldmillis>=1000){
+    oldmillis=millis_;
+    //Serial.println(millis());
+    if (!edittime) gettime(); //获取时间及时间流动
+    if (!(editmode || (ah == h && am == m))) {
+      if(noOutputOnce)noOutputOnce=false;
+      else output();
+    } //如果不在编辑模式 将输出时间日期
+    if (ah == h && am == m) alarmrun(); //闹钟响铃部分
+   }
 }
 
 void recv()
 {
       if (irrecv.decode(&results))
     {
-      //Serial.println(results.value, HEX);
+      Serial.println(results.value, HEX);
+      if (results.value == 0xFD807F) // VOL+
+      {
+        // do sth...
+      }
+      if (results.value == 0xFD40BF) // FUNC/STOP
+      {
+        if(ambientLight2==0){
+          ambientLight2=1;
+          noOutputOnce = true;
+          lcd.clear();
+        lcd.setCursor(1,0);
+        lcd.print("Backgrd Light");
+        lcd.setCursor(6,1);
+        lcd.print("OFF");
+          pinMode(3, OUTPUT);
+  pinMode(4, OUTPUT);
+          digitalWrite(3, LOW);
+          digitalWrite(4, LOW);
+         }else if(ambientLight2==1){
+          ambientLight2=2;
+          noOutputOnce = true;
+          lcd.clear();
+        lcd.setCursor(1,0);
+        lcd.print("Backgrd Light");
+        lcd.setCursor(6,1);
+        lcd.print("LOW");
+          pinMode(3, OUTPUT);
+  pinMode(4, INPUT);
+          digitalWrite(3, HIGH);
+          //digitalWrite(4, LOW);
+          }else if(ambientLight2==2){
+            ambientLight2=0;
+          noOutputOnce = true;
+          lcd.clear();
+        lcd.setCursor(1,0);
+        lcd.print("Backgrd Light");
+        lcd.setCursor(6,1);
+        lcd.print("HIGH");  
+          pinMode(3, OUTPUT);
+  pinMode(4, OUTPUT);
+          digitalWrite(3, HIGH);
+          digitalWrite(4, HIGH);
+          }
+      }
+      if (results.value == 0xFD20DF) // |<<
+      {
+        // do sth...
+      }
+      if (results.value == 0xFDA05F) // >||
+      {
+        // do sth...
+      }
+      if (results.value == 0xFD609F) // >>|
+      {
+        // do sth...
+      }
+      if (results.value == 0xFD10EF) // 下箭头
+      {
+        if(ambientLight1>=10) ambientLight1 -= 50;
+        if(ambientLight1==5) ambientLight1 = 0;
+        analogWrite(AMBIENT_Light1, ambientLight1);
+        noOutputOnce = true;
+        lcd.clear();
+        lcd.setCursor(1,0);
+        lcd.print("Ambient Light");
+        lcd.setCursor(6,1);
+        lcd.print(ambientLight1/50);
+        lcd.print(" / 5");
+      }
+      if (results.value == 0xFD906F) // VOL-
+      {
+        if(!ambientLight1Waved){
+          ambientLight1Waved=true;
+          noOutputOnce = true;
+          lcd.clear();
+        lcd.setCursor(1,0);
+        lcd.print("Ambient Light");
+        lcd.setCursor(4,1);
+        lcd.print("Waved On");
+          }else{
+            ambientLight1Waved=false;
+          noOutputOnce = true;
+          lcd.clear();
+        lcd.setCursor(1,0);
+        lcd.print("Ambient Light");
+        lcd.setCursor(4,1);
+        lcd.print("WavedOFF");
+            }
+      }
+      if (results.value == 0xFD50AF) // 上箭头
+      {
+        if(ambientLight1<=245) ambientLight1 += 50;
+        if(ambientLight1==250) ambientLight1 = 255;
+        analogWrite(AMBIENT_Light1, ambientLight1);
+        //Serial.println(ambientLight);
+        noOutputOnce = true;
+        lcd.clear();
+        lcd.setCursor(1,0);
+        lcd.print("Ambient Light1");
+        lcd.setCursor(6,1);
+        lcd.print(ambientLight1/50);
+        lcd.print(" / 5");
+      }
+      if (results.value == 0xFDB04F) // EQ
+      {
+        // do sth...
+      }
+      if (results.value == 0xFD708F) // ST/REPT
+      {
+        // do sth...
+      }
       if (results.value == 0xFD30CF)
       {
         remote(0);
@@ -199,11 +346,11 @@ void output()
   default:
     lcd.print("Err");
   }
-  if(showtemp){
+  if(showtemp&&(s%2==0)){
     DHT.read(DHT11_PIN);
     lcd.print(" ");
+    if(0<DHT.temperature&&DHT.temperature<50)
     lcd.print(DHT.temperature,1);
-  
   }
 }
 
@@ -230,8 +377,11 @@ int remote(int recv)
 {
   if (recv == backlightKey && !editmode){
     backLight=!backLight;
-    if(backLight)lcd.backlight(); 
-    else lcd.noBacklight();
+    if(backLight){lcd.backlight(); 
+    analogWrite(LCD_BK_PIN, lcd_bk);
+    }
+    else {lcd.noBacklight();
+    analogWrite(LCD_BK_PIN, 0);}
     return 0;
   }
   if (recv == showtempKey && !editmode){
