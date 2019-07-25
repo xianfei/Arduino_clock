@@ -10,6 +10,12 @@
    7键：切换背光开关
 修改时间日期及设置闹钟使用0-9键输入
 显示alamr则表示闹钟已设定
+
+v3.1 
+加入亮度缓升缓降
+加入防PWM调光干扰（亮度均值采样）
+加入低亮度按遥控器保持五秒背光
+修正输入月份可能进位的bug
 */
 
 //在这里自定义遥控按键
@@ -52,15 +58,20 @@ static char t[9], d[12];
 static short edittime = 0, editdate = 0, editalarm = 0, curs,backLight=1;
 static short ah = 25, am = 0;
 #define editmode (edittime || editdate || editalarm)
-int lcd_bk = 255;
 
-int ambientLight1 = 0;
+
+unsigned char ambientLight1 = 0;
 bool ambientLight1Waved = false;
-int ambientLight2 = 0;
+unsigned char ambientLight2 = 0;
 bool ambientLight2On = false;
 unsigned long oldmillis=0;
-unsigned long long passed=0;
+unsigned long oldmillis2=0;
 bool noOutputOnce = false;
+unsigned char currentBright=255;  //  当前显示屏亮度  用于亮度缓慢升降
+unsigned char lcd_bk = 255;  //  应设定的显示屏亮度
+unsigned char bright[100]={0};  // 用于亮度采样  防止PWM影响亮度检测
+unsigned char bright_i=0;  // 用于亮度采样的循环变量
+unsigned char keepBKOn=0; //  保持背光时间（s）
 
 void setup()
 {
@@ -98,13 +109,33 @@ void loop()
     }
   #ifndef TEST1
   int sensorValue = analogRead(LIGHT_SENSOR); // 0-1023
-  lcd_bk=sensorValue/4;  // 0-255
-  analogWrite(LCD_BK_PIN, lcd_bk);
+  bright[bright_i++]=sensorValue/4;  // 0-255
+  if(bright_i==100){
+      bright_i=0;
+  }
+  unsigned long millis_2=millis();
+  if(oldmillis2!=millis_2){
+    oldmillis2=millis_2;
+    int sum = 0;
+    for(int i=0;i<100;i++)sum+=bright[i];
+    if(keepBKOn!=0&&currentBright<=50)currentBright=50;// 黑暗下 遥控等操作出发背光短暂亮起
+    else {lcd_bk=sum/100;  // 
+    Serial.println("lcd_bk");
+    Serial.println(lcd_bk);
+    if(lcd_bk<currentBright&&currentBright>0)currentBright--;
+    if(lcd_bk>currentBright&&currentBright<255)currentBright++;}
+    //if(keepBKOn!=0&&currentBright<100)analogWrite(LCD_BK_PIN, 100);
+    Serial.println("currentBright");
+    Serial.println(currentBright);
+    analogWrite(LCD_BK_PIN, currentBright);
+    
+   }
   #endif
   unsigned long millis_=millis();
   if(millis_-oldmillis>=1000){
     oldmillis=millis_;
     //Serial.println(millis());
+    if(keepBKOn>0)keepBKOn--;
     if (!edittime) gettime(); //获取时间及时间流动
     if (!(editmode || (ah == h && am == m))) {
       if(noOutputOnce)noOutputOnce=false;
@@ -118,6 +149,7 @@ void recv()
 {
       if (irrecv.decode(&results))
     {
+      if(results.value>0xFD0000&&results.value<0xFDFFFF)keepBKOn=5;
       Serial.println(results.value, HEX);
       if (results.value == 0xFD807F) // VOL+
       {
@@ -217,7 +249,7 @@ void recv()
         noOutputOnce = true;
         lcd.clear();
         lcd.setCursor(1,0);
-        lcd.print("Ambient Light1");
+        lcd.print("Ambient Light");
         lcd.setCursor(6,1);
         lcd.print(ambientLight1/50);
         lcd.print(" / 5");
@@ -660,7 +692,7 @@ void gettime()
   }
   t[2] = ':';
   t[5] = ':';
-  short daymax[13] = {0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  short daymax[13] = {100, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
   if (y / 100 != 0 && y % 4 == 0 || y / 400 == 0)
   {
     daymax[2] = 29;
