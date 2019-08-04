@@ -45,12 +45,12 @@
 #endif
 #include <LiquidCrystal_I2C.h>
 #include <IRremote.h>
-IRrecv irrecv(RECV_PIN);
-decode_results results;
+IRrecv irrecv(RECV_PIN); // 创建红外线接受变量
+decode_results results;  // 用于保存红外线接收结果
 LiquidCrystal_I2C lcd(0x20, 16, 2); //设置LCD的地址，2行，每行16字符
 static char t[9], d[12];
 static short h, m, s, y, mon, day, xq; // 系统时间 时 分 秒 年 月 日 星期
-static short h_, m_, s_, y_, mon_, day_, xq_; // 调整时间的临时变量 时 分 秒 年 月 日 星期
+static short h_, m_, s_, y_, mon_, day_; // 调整时间的临时变量 时 分 秒 年 月 日 星期
 static short edittime = 0, editdate = 0, editalarm = 0, curs,backLight=1;
 static short ah = 25, am = 0;
 unsigned long oldmillis=0;
@@ -62,15 +62,17 @@ bool ambientLight1Waved = false;
 unsigned char ambientLight2 = 0;
 bool ambientLight2On = false;
 
-bool noOutputOnce = false;
+bool noOutputOnce = false, needClear=false;
 #if defined(LIGHT_SENSOR)&&(LCD_BK_PIN)
   unsigned long oldmillis2=0;
   unsigned char currentBright=255;  //  当前显示屏亮度  用于亮度缓慢升降
   unsigned char lcd_bk = 255;  //  应设定的显示屏亮度
   unsigned char bright[100]={0};  // 用于亮度采样  防止PWM影响亮度检测
   unsigned char bright_i=0;  // 用于亮度采样的循环变量
+  short brightOffset=0;  // 亮度偏移量
 #endif
 unsigned char keepBKOn=0; //  保持背光时间（s）
+
 
 void setup()
 {
@@ -82,7 +84,7 @@ void setup()
   #endif
   pinMode(AMBIENT_Light1, OUTPUT);
   //analogWrite(AMBIENT_Light1, 255);
-  Serial.begin(9600); // 设置串口波特率9600
+  //Serial.begin(9600); // 设置串口波特率9600
   irrecv.enableIRIn();
   pinMode(buzzpin, OUTPUT);
   #if defined(bootinf)
@@ -116,33 +118,45 @@ void loop()
     //Serial.println(light);
     }
   #if defined(LIGHT_SENSOR)&&(LCD_BK_PIN)
-  int sensorValue = analogRead(LIGHT_SENSOR); // 0-1023
-  bright[bright_i++]=sensorValue/4;  // 0-255
-  if(bright_i==100){
-      bright_i=0;
-  }
   unsigned long millis_2=millis();
   if(oldmillis2!=millis_2){
+    //Serial.println("Start");
+      int sensorValue = analogRead(LIGHT_SENSOR); // 0-1023
+      //Serial.println(sensorValue);
+      //Serial.println(sqrt(sensorValue*64.0));
+      bright[bright_i++]=sqrt(sensorValue*64.0);  // 0-255
+      if(bright_i==100){
+        bright_i=0;
+      }
     oldmillis2=millis_2;
-    int sum = 0;
-    for(int i=0;i<100;i++)sum+=bright[i];
+    //Serial.println(bright[1]);
+    unsigned char freq[256]={0};
+    for(int i=0;i<100;i++)freq[bright[i]]++;
+    int freqMax=freq[0],index=0;
+    for(int i=0;i<255;i++){
+      if(freq[i+1]>freqMax){
+        freqMax=freq[i+1];
+        index=i+1;
+      }
+    }
+    //Serial.println(sum/100);
     if(keepBKOn!=0&&currentBright<=50)currentBright=50;// 黑暗下 遥控等操作出发背光短暂亮起
-    else {lcd_bk=sum/100;  // 
+    else {
+      if(freqMax>=10)lcd_bk=index;  // 
     //Serial.println("lcd_bk");
     //Serial.println(lcd_bk);
     if(lcd_bk<currentBright&&currentBright>0)currentBright--;
     if(lcd_bk>currentBright&&currentBright<255)currentBright++;}
     //if(keepBKOn!=0&&currentBright<100)analogWrite(LCD_BK_PIN, 100);
-    //Serial.println("currentBright");
-    //Serial.println(currentBright);
-    analogWrite(LCD_BK_PIN, currentBright);
-    
+    //Serial.println(pow(currentBright/255.0,brightOffset>0?(1/(1.0+0.2*brightOffset)):(1.0-0.2*brightOffset))*255.0);
+    // 写入亮度时加上亮度偏移系数
+    analogWrite(LCD_BK_PIN, pow(currentBright/255.0,brightOffset>0?(1/(1.0+0.2*brightOffset)):(1.0-0.2*brightOffset))*255.0);
    }
   #endif
   unsigned long millis_=millis();
   if(millis_-oldmillis>=1000){
     oldmillis=millis_;
-    Serial.println(millis());
+    //Serial.println(millis_);
     if(keepBKOn>0)keepBKOn--;
     if (!edittime) gettime(); //获取时间及时间流动
     if (!(editmode || (ah == h && am == m))) {
@@ -151,6 +165,7 @@ void loop()
     } //如果不在编辑模式 将输出时间日期
     if (ah == h && am == m) alarmrun(); //闹钟响铃部分
    }
+   
 }
 
 void recv()
@@ -158,7 +173,7 @@ void recv()
       if (irrecv.decode(&results))
     {
       if(results.value>0xFD0000&&results.value<0xFDFFFF)keepBKOn=5;
-      Serial.println(results.value, HEX);
+      //Serial.println(results.value, HEX);
       if (results.value == 0xFD00FF)  // 电源键：返回主界面
       {
         edittime = 0;
@@ -212,12 +227,27 @@ void recv()
           }
       }else if (results.value == 0xFD20DF) // |<<
       {
-        // do sth...
+        keepBKOn=0;
+        noOutputOnce = true;
+        lcd.clear();
+        lcd.setCursor(1,0);
+        lcd.print("Bright Offset");
+        lcd.setCursor(7,1);
+        if(brightOffset>-5)brightOffset--;
+        lcd.print(brightOffset);
       }else if (results.value == 0xFDA05F) // >||
       {
         // do sth...
       }else if (results.value == 0xFD609F) // >>|
       {
+        keepBKOn=0;
+        noOutputOnce = true;
+        lcd.clear();
+        lcd.setCursor(1,0);
+        lcd.print("Bright Offset");
+        lcd.setCursor(7,1);
+        if(brightOffset<5)brightOffset++;
+        lcd.print(brightOffset);
         // do sth...
       }else if (results.value == 0xFD10EF) // 下箭头  切换PWM控制灯光亮度
       {
@@ -263,8 +293,21 @@ void recv()
         lcd.setCursor(6,1);
         lcd.print(ambientLight1/50);
         lcd.print(" / 5");
-      }else if (results.value == 0xFDB04F) // EQ
+      }else if (results.value == 0xFDB04F) // EQ  显示当前温湿度
       {
+        #if defined(DHT11_PIN)
+        noOutputOnce = true;
+        lcd.clear();
+        DHT.read(DHT11_PIN);
+        lcd.setCursor(0,0);
+        lcd.print("Temperature:");
+        lcd.print(DHT.temperature,1);
+        lcd.setCursor(1,1);
+        lcd.print("Humidity:");
+        lcd.print(DHT.humidity,1);
+        lcd.print("%");
+        needClear=1;
+        #endif
         // do sth...
       }else if (results.value == 0xFD708F) // ST/REPT
       {
@@ -307,6 +350,10 @@ void recv()
 
 void output()
 {
+  if(needClear){
+    needClear=false;
+    lcd.clear();
+  }
   //显示闹钟标识及时间
   if ((ah == 25)&&use24h)
     lcd.setCursor(4, 1);
@@ -353,7 +400,7 @@ void output()
     lcd.print("Wes");
     break;
   case 4:
-    lcd.print("Sat");
+    lcd.print("Thu");
     break;
   case 5:
     lcd.print("Fri");
