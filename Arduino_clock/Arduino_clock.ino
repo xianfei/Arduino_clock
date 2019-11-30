@@ -153,12 +153,15 @@ void loop()
     analogWrite(LCD_BK_PIN, pow(currentBright/255.0,brightOffset>0?(1/(1.0+0.2*brightOffset)):(1.0-0.2*brightOffset))*255.0);
    }
   #endif
+
+  
   unsigned long millis_=millis();
   if(millis_-oldmillis>=1000){
     oldmillis=millis_;
     //Serial.println(millis_);
     if(keepBKOn>0)keepBKOn--;
-    if (!edittime) gettime(); //获取时间及时间流动
+    s++;
+    formatTime(); //获取时间及时间流动
     if (!(editmode || (ah == h && am == m))) {
       if(noOutputOnce)noOutputOnce=false;
       else output();
@@ -181,6 +184,8 @@ void recv()
         editalarm = 0;
         lcd.clear();
         lcd.noBlink();
+        formatTime();
+        output();
         ah = 25, am = 0;
         digitalWrite(buzzpin, LOW);
       }else if (results.value == 0xFD807F) // VOL+ 键
@@ -455,12 +460,16 @@ int remote(int recv)
   if (recv == showtempKey && !editmode){
     showtemp=!showtemp;
     lcd.clear();
+    formatTime();
+    output();
     return 0;
   }
   #endif
   if (recv == use24hKey && !editmode){
     use24h=!use24h;
     lcd.clear();
+    formatTime();
+    output();
     return 0;
   }
   if (recv == cancelAlarmKey && !editmode)
@@ -470,8 +479,7 @@ int remote(int recv)
     lcd.clear();
     lcd.setCursor(1, 0);
     lcd.print("Alarm canceled");
-    s++;
-    delay(960);
+    noOutputOnce=true;
     return 0;
   }
   if (recv == editdayKey && !editmode)
@@ -546,6 +554,8 @@ int remote(int recv)
       lcd.clear();
       editalarm = 0;
       lcd.noBlink();
+      formatTime();
+      output();
       return 0;
     }
     if (curs == 4)
@@ -557,7 +567,7 @@ int remote(int recv)
     curs++;
     lcd.setCursor(curs, 1);
     lcd.blink();
-    delay(50);
+    // delay(50);
   }
   if (edittime)
   {
@@ -595,6 +605,8 @@ int remote(int recv)
       lcd.clear();
       edittime = 0;
       lcd.noBlink();
+      formatTime();
+      output();
       return 0;
     }
     if (curs == 4 || curs == 7)
@@ -655,6 +667,8 @@ int remote(int recv)
       lcd.clear();
       editdate = 0;
       lcd.noBlink();
+      formatTime();
+      output();
       return 0;
     }
     if (curs == 5 || curs == 8)
@@ -670,7 +684,7 @@ int remote(int recv)
   }
 }
 
-void gettime()
+void formatTime()
 {
   #if defined(RTC_DS3231)
     RtcDateTime now = Rtc.GetDateTime();
@@ -681,16 +695,16 @@ void gettime()
     m=now.Minute();
     s=now.Second();
   #else
-  s++;
   if (s > 59) 
   {
-    s = 0;
-    m++;
+    m+=s/60;
+    s %=60;
+    
   }
   if (m > 59) 
   {
-    m = 0;
-    h++;
+    h+=m/60;
+    m %=60;
   }
   if (h > 23)
   {
@@ -856,7 +870,7 @@ void inittime()  // 用于初始化时间为编译时间
     m = StringToInt(time + 3);
     s = StringToInt(time + 6);
     xq=ReturnWeekDay(y,mon,day);
-    for(int i=0;i<TIMEOFFSET;i++)gettime();
+   s+=TIMEOFFSET;
 }
 
 
